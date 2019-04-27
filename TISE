@@ -1,0 +1,192 @@
+%matplotlib inline
+import matplotlib.pyplot as plt
+import cmath
+import math
+import numpy as np
+from numpy import linalg as LA
+from matplotlib.animation import FuncAnimation as FA
+from matplotlib import rc
+from IPython.display import HTML
+from scipy.integrate import simps
+import matplotlib.patches as ptch
+import warnings
+from scipy.optimize import fsolve
+
+#==INPUT BASED ON MODEL==
+dx = float(0.02); dt = float(0.001) #time and space steps
+barA = int((1./3.)/dx); barB = int((2./3.)/dx) #location of barrier
+nu = 1000. #potential barrier strength
+INITIALSTATE=2 #0 - 1st analytic state
+               #1 - spike (not implement)
+               #2 - superposition
+L = 1.; grid = int(L/dx)+1; x = np.arange(0,1+dx,dx); T=1.
+#==============
+
+##########################################################
+def Op(): #Creates Hamiltonian Operator
+    D = ((np.diagflat(2*np.ones(grid))
+        + np.diagflat(-np.ones(grid-1),-1)
+        + np.diagflat(-np.ones(grid-1),1)))
+    D[0,:] = 0; D[:,0] = 0; D[grid-1,:] = 0; D[:,grid-1] = 0; D = (D/(dx**2))
+    if nu!=0: #Add potential barrier
+        for i in range(barA, barB):
+            D[i][i] = D[i][i]+nu
+    return D
+
+def EIG(): #Calculates and prepares eigenstates and eigenvalues
+    v,w = LA.eigh(D); w = w.transpose(); idx = v.argsort()[::1]; v = v[idx]; w = w[:, idx] #Sort energies low to high
+    w = w/np.sqrt(dx)
+    for i in range(grid): #Flips eigenstates, since eigh doesn't care about direction
+        if w[i,2]<=0:
+            w[i,:] = -w[i,:]
+    wdel = [] #Remove unphysical states
+    for i in range(grid):
+        if np.count_nonzero(w[i,:])<2:
+            wdel=np.append(wdel,i)
+    w = np.delete(w,wdel,0); v = np.delete(v,wdel,0)
+    return v,w
+
+def exact(): #Calculates analytic eigenstates and eigenvalues
+    a = np.zeros(grid); b = np.zeros([grid,grid])
+    for i in range(grid):
+        a[i] = ((math.pi*(i))**2)
+        for j in range(grid):
+            b[i][j] = math.sqrt(2)*math.sin(math.pi*dx*j*(i))
+    return a,b
+
+def tEvoLong(): #multiple time steps
+    Psi = np.zeros([gridt,grid],dtype=np.complex128); Psi[0,:] = init #first row is initial state
+    PsiProb = np.zeros([gridt,grid],dtype=np.complex128); PsiProb[0,:] = np.abs(np.conj(init)*init)/math.sqrt(2)/2
+    for i in range(1,gridt): #time steps
+        alpha = np.zeros(grid-2,dtype=np.complex128) #inner product with previous time step
+        for j in range(grid-2):
+            alpha[j] = np.trapz(np.conj(w[j][:])*Psi[i-1][:],x,dx)
+        for j in range(grid): #space step
+            psiSum=0.0j
+            for n in range(grid-2): #summation over all states
+                psiSum += np.exp(-1j*v[n]*dt*i)*alpha[n]*w[n][j]
+            Psi[i][j] = psiSum; PsiProb[i][j] = np.abs(np.conj(psiSum)*psiSum)/math.sqrt(2)/2
+    return Psi, PsiProb
+
+def initialize_states():
+    init = np.zeros(grid)
+    if INITIALSTATE==0: #Uses the first analytic solution as initial condition
+        for i in range(grid):
+            init[i] = math.sqrt(2)*math.sin(math.pi*dx*i)
+        gridt = int(T/dt)+1
+    elif INITIALSTATE==1: #Uses a spike as initial condition
+        init[int((grid-1/2))]=1
+    elif INITIALSTATE==2: #Uses superposition of first and second states as initial condition
+        init = (w[0][:]+w[1][:])/math.sqrt(2)
+        v0 = np.sqrt(2)*abs(v[0] - v[1])**2; T = math.pi/v0; gridt = int(T/dt)
+    return init,gridt
+
+def rootFinder():
+    lam = np.arange(0,nu,1) #x axis
+    f = np.zeros(int(nu), dtype=np.complex128)
+    for i in range(int(nu)):
+        kappa = np.sqrt(nu-lam[i]); k = np.sqrt(lam[i])
+        f[i] = (np.exp(kappa/3) * ((kappa*np.sin(k/3) + k*np.cos(k/3))**2)
+                - np.exp(-kappa/3)*((kappa*np.sin(k/3) - k*np.cos(k/3))**2))
+    return lam, f
+
+def fLambda(xrt):
+    return (np.array(np.exp(np.sqrt(nu-xrt)/3) * ((np.sqrt(nu-xrt)*np.sin(np.sqrt(xrt)/3) + np.sqrt(xrt)*np.cos(np.sqrt(xrt)/3))**2)
+            - np.exp(-np.sqrt(nu-xrt)/3)*((np.sqrt(nu-xrt)*np.sin(np.sqrt(xrt)/3) - np.sqrt(xrt)*np.cos(np.sqrt(xrt)/3))**2)))    
+        
+###########################################################
+##======================MAIN PROGRAM=====================##
+###########################################################
+D = Op() #Creates Hamiltonian Operator
+v,w = EIG() #Returns numerical eigenvectors and eigenvalues
+V,W = exact() #Returns analytic eigenvectors and eigenvalues
+init,gridt = initialize_states() #Create the initial state
+Psi, PsiProb = tEvoLong() #Time evolution
+
+lam, f = rootFinder() #Root Equation
+xrt = np.nonzero(v<nu)
+root = fsolve(fLambda,v[xrt])
+#np.savetxt('energies.dat',v) #saves the energies for root finding
+###########################################################
+###########################################################
+
+#---------------------------------------------------------------------------------------------------
+
+###########################################################
+##===================PLOTTING RESULTS====================##
+###########################################################
+#==As of 27-4-2019, animations only work for nu>200 and eigenstates 0 and 1==
+#==SET THE NEXT LINE TO 1 IF ANIMATING TIME EVOLUTION. SET TO 1 TO SAVE==
+animating=0; saveanim = 0
+if animating==1:
+    if nu>200:
+        (warnings.warn('Animations are unstable when nu>200.' '\n'
+                   'Tunneling may not occur. The value of nu is {}'.format(nu))) 
+    def drawBar():
+        ls = barA*dx; rect = ptch.Rectangle((ls,0),ls+dx,nu**2, edgecolor='none', alpha = 0.3)
+        return rect
+    fg, ax = plt.subplots(figsize=(10,10)); ax.set(xlim=(0,1),ylim=(-1,1.5))
+    line = ax.plot(x,np.real(PsiProb[0,:]),color='k',lw=2)[0]
+    def animate(i): #updates lines
+        line.set_ydata(np.real(PsiProb[i,:]))
+    rect = drawBar(); ax.add_patch(rect); anim = FA(fg,animate,interval=200,frames=gridt, repeat=True)
+    rc('animation', html='html5')
+    if saveanim==1:
+        anim; anim.save('tunnel.gif', writer='imagemagick', fps=60)
+
+#==SET THE NEXT LINE TO 1 IF PLOTTING NUMERICAL VS ANALYTIC EIGENSTATES; SET TO 1 TO SAVE==
+Imgs1 = 1; saveImgs1=0
+if nu==0:
+    if Imgs1==1:
+        fig = plt.figure(); fig.set_size_inches(width, height)
+        for i in range(3):
+            l1 = "$E_{}$={:>8.2f}".format(i,v[i+1]); plt.plot(x,w[i,:], label=l1)
+        plt.legend(); plt.title('Numerical Eigenstates'); plt.tight_layout()
+
+        fig2 = plt.figure(); fig2.set_size_inches(width, height)
+        for i in range(3):
+            l1 = "$E_{}$={:>8.2f}".format(i,V[i+1]); plt.plot(x,W[i+1,:], label=l1)
+        plt.legend(); plt.title('Analytic (Exact) Eigenstates'); plt.tight_layout()
+
+        fig3 = plt.figure(); fig3.set_size_inches(width, height)
+        plt.plot(v*np.sqrt(2), label ='Numerical Energies'); plt.plot(V, label ='Analytic (Exact) Energies')
+        plt.title('Numerical vs. Analytic Energies'); plt.xlabel('n'); plt.ylabel('Energy (dimensionless)')
+        plt.xlim(0,grid-1); plt.tight_layout(); plt.legend()
+        if saveImgs1==1:
+            fig.savefig('compstates1.pdf'); fig2.savefig('compstates2.pdf'); fig3.savefig('compare.pdf')
+            
+else:
+    if Imgs1==1:
+        fig = plt.figure()
+        fig.set_size_inches(width*1.6, height*1.6)
+        for i in range(5):
+            l1 = "$E_{}$={:>8.2f}".format(i,v[i]);
+            plt.plot(x,w[i,:], label=l1)
+        plt.legend(); (plt.title('Numerical Eigenstates for Potential Well' '\n'
+                  'with Potential Strength ' r'$\nu_o=1000$'))
+        plt.tight_layout()
+        if saveImgs1==1:
+            fig.savefig('barStates.pdf')
+
+#==SET THE NEXT LINE TO 1 IF PLOTTING ROOT EQUATION; SET TO 1 TO SAVE==
+Imgs2 = 1; saveImgs2=0
+if Imgs2==1:
+    down = []; downlist = [[]]
+    for i in range(1,int(nu)):
+        if f[i-1]>f[i]:
+            down.append(i)
+        elif len(down)!=0:
+            downlist.append(down); down=[]
+    del downlist[0]
+    
+    def drawBar(a):
+        ls = downlist[a][0]; rs = downlist[a][-1]; w = rs-ls; h = max(f[rs],f[ls])
+        rect = ptch.Rectangle((ls,0),w,h, edgecolor='none', alpha = 0.3)
+        return rect
+    
+    figrt = plt.figure(); ax = figrt.add_subplot(1,1,1); plt.xlabel(r'$\lambda$'); plt.ylabel(r'$f(\lambda)$')
+    plt.title('Root-finding Function for Various ' r'$\lambda$'); plt.plot(lam,f,label='$f(\lambda)$')
+    for i in range(len(downlist)):
+        rect = drawBar(i); ax.add_patch(rect)
+    if saveImgs2==1:
+        fig.savefig('flambda.pdf')
