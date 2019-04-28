@@ -113,6 +113,12 @@ xrt = np.nonzero(v<nu); root = fsolve(fLambda,v[xrt]) #Solve root eq. and plot
 ###########################################################
 ##===================PLOTTING RESULTS====================##
 ###########################################################
+#LaTeX plotting settings
+width = 4.6
+height = width/1.618
+saveImg = 0 #set to 1 to save images
+sep = ''
+#------------------------------------
 #==As of 27-4-2019, animations only work for nu>200 and eigenstates 0 and 1==
 #==SET THE NEXT LINE TO 1 IF ANIMATING TIME EVOLUTION. SET TO 1 TO SAVE==
 animating=0; saveanim = 0
