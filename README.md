@@ -14,7 +14,7 @@ Results in the report were arrived at using Python 3 notebook with Anaconda on W
 
 *Animations may require that one calls the animation a second time in another cell after the main program is run.
 
-##Crank-Nicolson does the following:
+## Crank-Nicolson does the following:
   - Solves the SE for a particle in a box with or without a potential barrier in the middle third of the box using **Crank-Nicolson instead!**
   - Generates animations* and figures for the time-evolution of states (note: only tested for initial condition = superposition, option 2)
 
